@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -7,6 +8,8 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 LATITUDE = 48.485
 LONGITUDE = 34.250
+
+MY_CHAT_ID = 945919920
 
 
 def send_message(chat_id, text):
@@ -98,9 +101,16 @@ def get_updates(offset=None):
 already_sent = False
 last_update_id = None
 
+last_rain_check = 0
+
 while True:
 
     updates = get_updates(last_update_id)
+
+    if "result" not in updates:
+        print("Ошибка Telegram:", updates)
+        time.sleep(5)
+        continue
 
     for update in updates["result"]:
         last_update_id = update["update_id"] + 1
@@ -115,8 +125,30 @@ while True:
             continue
 
         text = message["text"]
+        if text == "/start":
+            send_message(
+                chat_id,
+                "👋 Ку!\n"
+                "Я погодный бот для Верховцева.\n\n"
+                "Команды:\n"
+                "/weather — Текущая погода\n"
+                "/rain — вероятность дождя\n"
+                "/help — помощь"
+            )
 
-        if text == "/forecast":
+        if text == "/rain":
+            temperature, humidity, rain_probability = get_weather_statistic()
+
+            rain_comment = get_rain_comment(rain_probability)
+
+            send_message(
+                chat_id,
+                f"☔ Дождь в Верховцево\n"
+                f"Вероятность дождя: {rain_probability}%\n"
+                f"{rain_comment}"
+            )
+
+        if text == "/weather":
             temperature, humidity, rain_probability = get_weather_statistic()
 
             weather_comment = get_temperature_comment(temperature)
@@ -140,3 +172,34 @@ while True:
                 f"Дата запуска: {date_now}\n"
                 f"Время запуска: {time_now}"
             )
+        if text == "/help":
+            send_message(
+                chat_id,
+                "ℹ️ Помощь\n\n"
+                "/weather - текущая погода\n"
+                "/rain - вероятность дождя\n"
+                "/start - приветствие\n"
+                "/help - помощь"
+            )
+    current_time = time.time()
+
+    if current_time - last_rain_check >= 1800:
+        temperature, humidity, rain_probability = get_weather_statistic()
+        rain_comment = get_rain_comment(rain_probability)
+
+        if rain_probability >= 70 and not already_sent:
+            send_message(
+                MY_CHAT_ID,
+                f"⚠️ Возможен дождь в Верховцево!\n"
+                f"Вероятность дождя: {rain_probability}%\n"
+                f"{rain_comment}"
+            )
+
+            already_sent = True
+
+        elif rain_probability < 70:
+            already_sent = False
+
+        last_rain_check = current_time
+
+    time.sleep(2)
