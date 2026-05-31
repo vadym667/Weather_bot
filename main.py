@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -10,6 +11,7 @@ LATITUDE = 48.485
 LONGITUDE = 34.250
 
 MY_CHAT_ID = 945919920
+SUBSCRIBERS_FILE = "subscribers.json"
 
 
 def send_message(chat_id, text, reply_markup=None):
@@ -48,12 +50,24 @@ def edit_message(chat_id, message_id, text, reply_markup=None):
 
     requests.post(url, json=data)
 
+def load_subscribers():
+    try:
+        with open(SUBSCRIBERS_FILE, "r") as file:
+            return set(json.load(file))
+    except FileNotFoundError:
+        return set()
+
+
+def save_subscribers(subscribers):
+    with open(SUBSCRIBERS_FILE, "w") as file:
+        json.dump(list(subscribers), file)
+
 def get_weather_statistic():
     url = (
         "https://api.open-meteo.com/v1/forecast"
         f"?latitude={LATITUDE}"
         f"&longitude={LONGITUDE}"
-        "&current=temperature_2m,relative_humidity_2m"
+        "&current=temperature_2m,relative_humidity_2m,precipitation,rain"
         "&hourly=precipitation_probability"
         "&timezone=Europe%2FKyiv"
     )
@@ -66,20 +80,52 @@ def get_weather_statistic():
 
     current_index = times.index(current_hour)
 
-    rain_time = times[current_index]
     rain_probability = rain_probabilities[current_index]
+
+    precipitation = weather_data["current"]["precipitation"]
+    rain = weather_data["current"]["rain"]
 
 
     temperature = weather_data["current"]["temperature_2m"]
     humidity = weather_data["current"]["relative_humidity_2m"]
-    return temperature, humidity, rain_probability
+    return temperature, humidity, rain_probability, precipitation, rain
+
+def get_rain_forecast():
+        url = (
+            "https://api.open-meteo.com/v1/forecast"
+            f"?latitude={LATITUDE}"
+            f"&longitude={LONGITUDE}"
+            "&hourly=precipitation_probability"
+            "&timezone=Europe%2FKyiv"
+        )
+
+        response = requests.get(url)
+        weather_data = response.json()
+
+        times = weather_data["hourly"]["time"]
+        rain_probabilities = weather_data["hourly"]["precipitation_probability"]
+
+        current_hour = datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%Y-%m-%dT%H:00")
+        current_index = times.index(current_hour)
+
+        forecast_text = "📅 Прогноз дождя на ближайшие 6 часов\n\n"
+
+        for i in range(6):
+            index = current_index + i
+
+            time_text = times[index][11:16]
+            rain_probability = rain_probabilities[index]
+
+            forecast_text += f"{time_text} — {rain_probability}%\n"
+
+        return forecast_text
 
 kyiv_time = datetime.now(ZoneInfo("Europe/Kyiv"))
 
 date_now = kyiv_time.strftime("%d/%m/%Y")
 time_now = kyiv_time.strftime("%H:%M")
 
-temperature, humidity, rain_probability = get_weather_statistic()
+temperature, humidity, rain_probability, precipitation, rain = get_weather_statistic()
 def get_temperature_comment(temperature):
     if temperature > 25:
         weather_comment ="🔥 На улице жарко!"
@@ -138,7 +184,12 @@ inline_keyboard = {
             {"text": "☔ Дождь", "callback_data": "rain"}
         ],
         [
+            {"text": "📅 Прогноз", "callback_data": "forecast"},
             {"text": "ℹ️ Помощь", "callback_data": "help"}
+        ],
+        [
+            {"text": "🔔 Подписаться", "callback_data": "subscribe"},
+            {"text": "🔕 Отписаться", "callback_data": "unsubscribe"}
         ]
     ]
 }
@@ -147,6 +198,8 @@ already_sent = False
 last_update_id = None
 
 last_rain_check = 0
+
+subscribers = load_subscribers()
 
 while True:
 
@@ -164,8 +217,9 @@ while True:
             answer_callback(callback["id"])
 
             chat_id = callback["message"]["chat"]["id"]
-            text = callback["data"]
             message_id = callback["message"]["message_id"]
+            text = callback["data"]
+            is_callback = True
 
             if text == "weather":
                 text = "/weather"
@@ -175,6 +229,16 @@ while True:
 
             if text == "help":
                 text = "/help"
+
+            if text == "forecast":
+                text = "/forecast"
+
+            if text == "subscribe":
+                text = "/subscribe"
+
+            if text == "unsubscribe":
+                text = "/unsubscribe"
+
         else:
             if "message" not in update:
                 continue
@@ -186,6 +250,13 @@ while True:
                 continue
 
             text = message["text"]
+            is_callback = False
+
+        def reply(text_to_send):
+            if is_callback:
+                edit_message(chat_id, message_id, text_to_send, inline_keyboard)
+            else:
+                send_message(chat_id, text_to_send)
 
         if text == "/start":
             send_message(
@@ -197,19 +268,20 @@ while True:
              )
 
         elif text == "/rain" or text == "☔ Дождь":
-            temperature, humidity, rain_probability = get_weather_statistic()
+            temperature, humidity, rain_probability, precipitation, rain = get_weather_statistic()
 
             rain_comment = get_rain_comment(rain_probability)
 
-            send_message(
-                chat_id,
+            reply(
                 f"☔ Дождь в Верховцево\n"
                 f"Вероятность дождя: {rain_probability}%\n"
+                f"🌊 Осадки сейчас: {precipitation} мм\n"
+                f"🧊 Дождь сейчас: {rain} мм\n"
                 f"{rain_comment}"
             )
 
         elif text == "/weather" or text == "🌤 Погода":
-            temperature, humidity, rain_probability = get_weather_statistic()
+            temperature, humidity, rain_probability, precipitation, rain = get_weather_statistic()
 
             weather_comment = get_temperature_comment(temperature)
             weather_comment1 = get_humidity_comment(humidity)
@@ -220,27 +292,76 @@ while True:
             date_now = kyiv_time.strftime("%d/%m/%Y")
             time_now = kyiv_time.strftime("%H:%M")
 
-            send_message(
-                chat_id,
+            reply(
                 f"🌤 Погода в Верховцеве\n"
                 f"Температура: {temperature}°C\n"
                 f"{weather_comment}\n"
                 f"Влажность: {humidity}%\n"
                 f"{weather_comment1}\n"
                 f"Вероятность дождя: {rain_probability}%\n"
+                f"🌊 Осадки сейчас: {precipitation} мм\n"
+                f"🧊 Дождь сейчас: {rain} мм\n"
                 f"{rain_comment}\n"
                 f"Дата запуска: {date_now}\n"
                 f"Время запуска: {time_now}"
             )
-        elif text == "/help" or text == "ℹ️ Помощь":
-            send_message(
-                chat_id,
-                "ℹ️ Помощь\n\n"
-                "/weather - текущая погода\n"
-                "/rain - вероятность дождя\n"
-                "/start - приветствие\n"
-                "/help - помощь"
+        elif text == "/forecast":
+            forecast_text = get_rain_forecast()
+
+            reply(
+                forecast_text
             )
+
+        elif text == "/help" or text == "ℹ️ Помощь":
+            reply(
+                "ℹ️ Помощь\n\n"
+                "🌤 /weather — текущая погода\n"
+                "☔ /rain — вероятность дождя\n"
+                "📖 /help — список команд\n"
+                "📅 /forecast — прогноз дождя на 6 часов\n"
+                "👋 /start — главное меню"
+            )
+
+
+        elif text == "/subscribe":
+
+            if chat_id in subscribers:
+
+                reply("✅ Ты уже подписан на уведомления.")
+
+            else:
+
+                subscribers.add(chat_id)
+
+                save_subscribers(subscribers)
+
+                reply("🔔 Ты подписался на уведомления о дожде.")
+
+
+
+        elif text == "/unsubscribe":
+
+            if chat_id not in subscribers:
+
+                reply("❌ Ты и так не подписан, loh.")
+
+            else:
+
+                subscribers.discard(chat_id)
+
+                save_subscribers(subscribers)
+
+                reply("🔕 Ты отписался от уведомлений.")
+
+        elif text == "/stats":
+
+            if chat_id == MY_CHAT_ID:
+                reply(
+                    f"📊 Статистика бота\n\n"
+                    f"👥 Подписчиков: {len(subscribers)}\n"
+                    f"🤖 Бот работает нормально"
+                )
+
         else:
             send_message(
                 chat_id,
@@ -249,16 +370,20 @@ while True:
     current_time = time.time()
 
     if current_time - last_rain_check >= 1800:
-        temperature, humidity, rain_probability = get_weather_statistic()
+        temperature, humidity, rain_probability, precipitation, rain = get_weather_statistic()
         rain_comment = get_rain_comment(rain_probability)
 
         if rain_probability >= 70 and not already_sent:
-            send_message(
-                MY_CHAT_ID,
-                f"⚠️ Возможен дождь в Верховцево!\n"
-                f"Вероятность дождя: {rain_probability}%\n"
-                f"{rain_comment}"
-            )
+            for subscriber_id in subscribers:
+                send_message(
+                    subscriber_id,
+                    f"⚠️ Возможен дождь в Верховцево!\n"
+                    f"Вероятность дождя: {rain_probability}%\n"
+                    f"🌊 Осадки сейчас: {precipitation} мм\n"
+                    f"🧊 Дождь сейчас: {rain} мм\n"
+                    f"{rain_comment}"
+                )
+
 
             already_sent = True
 
@@ -267,4 +392,4 @@ while True:
 
         last_rain_check = current_time
 
-    time.sleep(2)
+    time.sleep(1)
