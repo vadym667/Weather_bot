@@ -76,10 +76,8 @@ def get_weather_statistic():
     weather_data = response.json()
     rain_probabilities = weather_data["hourly"]["precipitation_probability"]
     times = weather_data["hourly"]["time"]
-    current_hour = datetime.now().strftime("%Y-%m-%dT%H:00")
-
+    current_hour = datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%Y-%m-%dT%H:00")
     current_index = times.index(current_hour)
-
     rain_probability = rain_probabilities[current_index]
 
     precipitation = weather_data["current"]["precipitation"]
