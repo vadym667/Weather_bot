@@ -120,12 +120,6 @@ def get_rain_forecast():
 
         return forecast_text
 
-kyiv_time = datetime.now(ZoneInfo("Europe/Kyiv"))
-
-date_now = kyiv_time.strftime("%d/%m/%Y")
-time_now = kyiv_time.strftime("%H:%M")
-
-temperature, humidity, rain_probability, precipitation, rain = get_weather_statistic()
 def get_temperature_comment(temperature):
     if temperature > 25:
         weather_comment ="🔥 На улице жарко!"
@@ -134,8 +128,6 @@ def get_temperature_comment(temperature):
     else:
         weather_comment = "😎 Нормальная температура."
     return weather_comment
-
-weather_comment = get_temperature_comment(temperature)
 
 def get_humidity_comment(humidity):
     if humidity > 80:
@@ -153,9 +145,6 @@ def get_rain_comment(rain_probability):
         return "☀ Дождь маловероятен."
     else:
         return "🌥 Возможен дождь"
-rain_comment = get_rain_comment(rain_probability)
-
-weather_comment1 = get_humidity_comment(humidity)
 
 
 def get_updates(offset=None):
