@@ -123,8 +123,10 @@ while True:
             weather_comment1 = get_humidity_comment(humidity)
             rain_comment = get_rain_comment(rain_probability)
 
-            date_now = datetime.now().strftime("%d/%m/%Y")
-            time_now = datetime.now().strftime("%H:%M")
+            kyiv_time = datetime.now(ZoneInfo("Europe/Kyiv"))
+
+            date_now = kyiv_time.strftime("%d/%m/%Y")
+            time_now = kyiv_time.strftime("%H:%M")
 
             send_message(
                 chat_id,
