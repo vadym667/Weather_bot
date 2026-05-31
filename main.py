@@ -12,12 +12,24 @@ LONGITUDE = 34.250
 MY_CHAT_ID = 945919920
 
 
-def send_message(chat_id, text):
+def send_message(chat_id, text, reply_markup=None):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
     data = {
         "chat_id": chat_id,
         "text": text
+    }
+
+    if reply_markup is not None:
+        data["reply_markup"] = reply_markup
+
+    requests.post(url, json=data)
+
+def answer_callback(callback_query_id):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/answerCallbackQuery"
+
+    data = {
+        "callback_query_id": callback_query_id
     }
 
     requests.post(url, json=data)
@@ -98,6 +110,26 @@ def get_updates(offset=None):
     response = requests.get(url, params=params)
     return response.json()
 
+main_keyboard = {
+    "keyboard": [
+        ["🌤 Погода", "☔ Дождь"],
+        ["ℹ️ Помощь"]
+    ],
+    "resize_keyboard": True
+}
+
+inline_keyboard = {
+    "inline_keyboard": [
+        [
+            {"text": "🌤 Погода", "callback_data": "weather"},
+            {"text": "☔ Дождь", "callback_data": "rain"}
+        ],
+        [
+            {"text": "ℹ️ Помощь", "callback_data": "help"}
+        ]
+    ]
+}
+
 already_sent = False
 last_update_id = None
 
@@ -114,29 +146,43 @@ while True:
 
     for update in updates["result"]:
         last_update_id = update["update_id"] + 1
+        if "callback_query" in update:
+            callback = update["callback_query"]
+            answer_callback(callback["id"])
 
-        if "message" not in update:
-            continue
+            chat_id = callback["message"]["chat"]["id"]
+            text = callback["data"]
 
-        message = update["message"]
-        chat_id = message["chat"]["id"]
+            if text == "weather":
+                text = "/weather"
 
-        if "text" not in message:
-            continue
+            if text == "rain":
+                text = "/rain"
 
-        text = message["text"]
+            if text == "help":
+                text = "/help"
+        else:
+            if "message" not in update:
+                continue
+
+            message = update["message"]
+            chat_id = message["chat"]["id"]
+
+            if "text" not in message:
+                continue
+
+            text = message["text"]
+
         if text == "/start":
             send_message(
                 chat_id,
                 "👋 Ку!\n"
                 "Я погодный бот для Верховцева.\n\n"
-                "Команды:\n"
-                "/weather — Текущая погода\n"
-                "/rain — вероятность дождя\n"
-                "/help — помощь"
-            )
+                "Выбери действие кнопками ниже 👇",
+                 inline_keyboard
+             )
 
-        if text == "/rain":
+        elif text == "/rain" or text == "☔ Дождь":
             temperature, humidity, rain_probability = get_weather_statistic()
 
             rain_comment = get_rain_comment(rain_probability)
@@ -148,7 +194,7 @@ while True:
                 f"{rain_comment}"
             )
 
-        if text == "/weather":
+        elif text == "/weather" or text == "🌤 Погода":
             temperature, humidity, rain_probability = get_weather_statistic()
 
             weather_comment = get_temperature_comment(temperature)
@@ -172,7 +218,7 @@ while True:
                 f"Дата запуска: {date_now}\n"
                 f"Время запуска: {time_now}"
             )
-        if text == "/help":
+        elif text == "/help" or text == "ℹ️ Помощь":
             send_message(
                 chat_id,
                 "ℹ️ Помощь\n\n"
@@ -180,6 +226,11 @@ while True:
                 "/rain - вероятность дождя\n"
                 "/start - приветствие\n"
                 "/help - помощь"
+            )
+        else:
+            send_message(
+                chat_id,
+                "❓ Неизвестная команда.\nНажми /help для списка команд."
             )
     current_time = time.time()
 
